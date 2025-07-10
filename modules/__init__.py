@@ -1,2 +1,1 @@
-
-from .timetablelogic import GeneticAlgorithm, export_to_pdf
+from modules.timetable_logic import GeneticAlgorithm, export_to_pdf
