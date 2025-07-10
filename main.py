@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from timetable_logic import GeneticAlgorithm, export_to_pdf
+from timetablelogic import GeneticAlgorithm, export_to_pdf
 
 st.title("Academic Timetable Generator")
 
