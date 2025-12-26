@@ -30,12 +30,12 @@ class GeneticAlgorithm:
         """
         Generates slots. 
         If 'fixed' mode: Places classes of X mins. Jumps breaks.
-        If 'auto' mode: Divides available time equally (legacy behavior).
+        If 'auto' mode: Divides available time equally.
         """
         time_slots = []
         current_time = self.start_time
         
-        # --- AUTO-CALCULATION (Legacy fallback) ---
+        # --- AUTO-CALCULATION ---
         target_duration = 60
         if self.duration_mode == "auto":
             start_dt = datetime.combine(datetime.today(), self.start_time)
@@ -55,7 +55,6 @@ class GeneticAlgorithm:
             # 1. CHECK FOR BREAK AT START
             break_found_now = False
             for b_time, b_dur in self.breaks:
-                # Compare times
                 if current_time == b_time:
                     # Insert Break
                     b_end_dt = datetime.combine(datetime.today(), current_time) + timedelta(minutes=b_dur)
@@ -65,7 +64,7 @@ class GeneticAlgorithm:
                     break
             
             if break_found_now:
-                continue # Loop again to see if another break follows or we start a class
+                continue 
 
             # 2. TRY TO PLACE A CLASS
             start_dt = datetime.combine(datetime.today(), current_time)
@@ -75,20 +74,18 @@ class GeneticAlgorithm:
             collision = False
             for b_time, b_dur in self.breaks:
                 b_start_dt = datetime.combine(datetime.today(), b_time)
-                # If break starts INSIDE this class slot (Start < Break < End)
+                # If break starts INSIDE this class slot
                 if start_dt < b_start_dt < end_dt:
                     collision = True
-                    # Let's simply Advance to the Break Start
-                    current_time = b_time
+                    current_time = b_time # Skip to break start
                     break 
             
             if collision:
-                continue # Loop will pick up the break at step 1
+                continue 
 
             # 4. CHECK END OF DAY
             college_end_dt = datetime.combine(datetime.today(), self.end_time)
             if end_dt > college_end_dt:
-                # Cannot fit class before day ends
                 break
 
             # 5. COMMIT CLASS
@@ -97,12 +94,9 @@ class GeneticAlgorithm:
             classes_scheduled += 1
 
         # --- POST-LOOP: Check for trailing breaks ---
-        # If we finished classes exactly at Lunch (13:00), we want to show Lunch.
-        # Check if current_time matches any remaining breaks
         for b_time, b_dur in self.breaks:
             if current_time == b_time:
                 time_slots.append((current_time, "BREAK"))
-                # We don't advance time/loop further as classes are done.
 
         return time_slots
 
@@ -266,17 +260,11 @@ def export_to_pdf(timetables, time_slots, config, section_details):
         for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]:
             row = [day]
             if day in timetable:
-                # IMPORTANT: Ensure row matches time_slots length
-                # Iterate through expected slots, not just what's in the schedule
-                # This handles cases where schedule has fewer slots than time_slots
-                
-                # First, create a map of time -> content for this day
+                # Correctly map slots to table columns
                 day_content_map = {}
                 for t_slot, sub, fac in timetable[day]:
-                    # t_slot is (start, end) or (start, "BREAK")
                     day_content_map[t_slot[0]] = (sub, fac)
                 
-                # Now build row based on MASTER time_slots list
                 for slot_start, slot_end in time_slots:
                     if slot_start in day_content_map:
                         subject_data, faculty = day_content_map[slot_start]
@@ -292,7 +280,7 @@ def export_to_pdf(timetables, time_slots, config, section_details):
                             if s_name not in section_subjects_map:
                                 section_subjects_map[s_name] = {'code': s_code, 'name': s_name, 'faculty': faculty}
                     else:
-                        row.append("") # Empty slot if missing
+                        row.append("") # Empty slot logic
             else:
                 row.extend([""] * len(time_slots))
             data.append(row)
