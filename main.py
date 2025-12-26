@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from modules.timetable_logic import GeneticAlgorithm, export_to_pdf
 
 st.set_page_config(page_title="Universal Timetable Builder", layout="wide")
@@ -8,7 +8,6 @@ st.set_page_config(page_title="Universal Timetable Builder", layout="wide")
 st.title("Universal Academic Timetable Builder")
 st.markdown("Generate conflict-free, printable timetables tailored to your institution's format.")
 
-# --- HELPER: CUSTOM TIME SELECTOR (12-Hour) ---
 def custom_time_input(label, default_hour, default_min, default_ampm, key_prefix):
     st.write(f"**{label}**")
     c1, c2, c3 = st.columns([1, 1, 1])
@@ -19,18 +18,14 @@ def custom_time_input(label, default_hour, default_min, default_ampm, key_prefix
     with c3:
         am_pm = st.selectbox("AM/PM", options=["AM", "PM"], index=0 if default_ampm == "AM" else 1, key=f"{key_prefix}_ap")
     
-    # Convert to datetime.time
     h_24 = hour
-    if am_pm == "PM" and hour != 12:
-        h_24 += 12
-    elif am_pm == "AM" and hour == 12:
-        h_24 = 0
+    if am_pm == "PM" and hour != 12: h_24 += 12
+    elif am_pm == "AM" and hour == 12: h_24 = 0
     return datetime.strptime(f"{h_24}:{minute}", "%H:%M").time()
 
 # --- SIDEBAR: GLOBAL CONFIGURATION ---
 with st.sidebar:
     st.header("1. Report Configuration")
-    st.info("Customize the look of your PDF.")
     org_name = st.text_input("Institution Name", value="MALLA REDDY UNIVERSITY")
     subtitle = st.text_area("Address / Subtitle", value="Maisammaguda, Hyderabad, Telangana State.")
     dept_name = st.text_input("Department Name", value="DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING")
@@ -44,11 +39,19 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Time Settings")
-    # Custom 12-hour inputs
     start_time = custom_time_input("College Start Time", 9, 0, "AM", "start")
     end_time = custom_time_input("College End Time", 4, 0, "PM", "end")
-    
     num_classes = st.number_input("Classes per Day", min_value=1, value=6)
+
+    # --- LIVE PREVIEW OF CLASS DURATION ---
+    # This helps users realize why they are getting "10:03" instead of "10:00"
+    st.markdown("---")
+    
+    # Calculate dummy break minutes to show preview
+    preview_break_mins = 0
+    # We can't access the checkboxes below yet, so we just calculate raw availability
+    # User will see the real math in the Break section logic if we move it?
+    # Simpler: We'll calculate it below after breaks are defined.
 
 with col2:
     st.subheader("Structure")
@@ -56,26 +59,41 @@ with col2:
     branch_name = st.text_input("Branch Code (e.g., CSE)", value="CSE")
 
 # --- BREAKS ---
-st.subheader("Breaks (Optional)")
-st.info("Uncheck these to create a continuous timetable like the reference PDF.")
+st.subheader("Breaks")
 breaks = []
 if st.checkbox("Add Morning Break"):
     c1, c2 = st.columns(2)
-    with c1:
-        mb_time = custom_time_input("Start Time", 11, 0, "AM", "mb")
-    with c2:
+    with c1: mb_time = custom_time_input("Start Time", 11, 0, "AM", "mb")
+    with c2: 
         st.write("**Duration**")
         mb_dur = st.number_input("Minutes", min_value=5, value=10, key="mb_dur")
     breaks.append((mb_time, mb_dur))
 
 if st.checkbox("Add Lunch Break"):
     c1, c2 = st.columns(2)
-    with c1:
-        lb_time = custom_time_input("Start Time", 1, 0, "PM", "lb")
-    with c2:
+    with c1: lb_time = custom_time_input("Start Time", 1, 0, "PM", "lb")
+    with c2: 
         st.write("**Duration**")
         lb_dur = st.number_input("Minutes", min_value=15, value=60, key="lb_dur")
     breaks.append((lb_time, lb_dur))
+
+# --- CALCULATION PREVIEW ---
+# Real-time calc
+s_dt = datetime.combine(datetime.today(), start_time)
+e_dt = datetime.combine(datetime.today(), end_time)
+total_mins = (e_dt - s_dt).seconds // 60
+break_mins = sum(b[1] for b in breaks)
+avail = total_mins - break_mins
+if num_classes > 0:
+    calc_dur = avail // num_classes
+else:
+    calc_dur = 0
+
+st.info(f"📊 **Calculated Class Duration:** {calc_dur} minutes per class.\n\n"
+        f"(Total Time: {total_mins}m - Breaks: {break_mins}m = Available: {avail}m)")
+if calc_dur % 5 != 0:
+    st.warning("⚠️ Class duration is odd (e.g., 63 mins). "
+               "To get clean times (e.g., 60 mins), adjust your End Time or Break durations.")
 
 # --- SUBJECTS & FACULTY ---
 st.header("3. Subjects & Faculty")
