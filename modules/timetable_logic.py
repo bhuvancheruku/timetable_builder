@@ -4,7 +4,7 @@ import io
 from datetime import datetime, timedelta
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -223,10 +223,7 @@ def export_to_pdf(timetables, time_slots, config, section_details):
     # 2. Iterate through each section (Page Break per section)
     for section_idx, (section, timetable) in enumerate(timetables.items()):
         if section_idx > 0:
-            elements.append(from reportlab.platypus import PageBreak) # Logic handled by simple adding PageBreak() object if imported, but simpler to just append
-            elements.append(Spacer(1, 20)) # Placeholder for visual separation if single page, but usually we want page breaks.
-            # actually ReportLab SimpleDocTemplate handles flow. We need a PageBreak class.
-            from reportlab.platypus import PageBreak
+            # Add a Page Break for subsequent sections
             elements.append(PageBreak())
 
         # Add Header for this section
