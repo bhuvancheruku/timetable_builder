@@ -78,15 +78,6 @@ class GeneticAlgorithm:
                 # If break starts INSIDE this class slot (Start < Break < End)
                 if start_dt < b_start_dt < end_dt:
                     collision = True
-                    # In Fixed Mode: We usually SKIP this gap or Truncate. 
-                    # To be clean, we usually jump to AFTER the break.
-                    # But if we jump, we leave a gap. 
-                    # Let's fill the gap with "Free" or just advance time.
-                    
-                    # Better Logic: If collision, we cannot place a full class here.
-                    # We advance current_time to the Break Start, process the break, and continue.
-                    # But we shouldn't create a "mini class". 
-                    
                     # Let's simply Advance to the Break Start
                     current_time = b_time
                     break 
@@ -275,18 +266,33 @@ def export_to_pdf(timetables, time_slots, config, section_details):
         for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]:
             row = [day]
             if day in timetable:
-                for time_slot, subject_data, faculty in timetable[day]:
-                    if subject_data == "BREAK":
-                        row.append("BREAK")
+                # IMPORTANT: Ensure row matches time_slots length
+                # Iterate through expected slots, not just what's in the schedule
+                # This handles cases where schedule has fewer slots than time_slots
+                
+                # First, create a map of time -> content for this day
+                day_content_map = {}
+                for t_slot, sub, fac in timetable[day]:
+                    # t_slot is (start, end) or (start, "BREAK")
+                    day_content_map[t_slot[0]] = (sub, fac)
+                
+                # Now build row based on MASTER time_slots list
+                for slot_start, slot_end in time_slots:
+                    if slot_start in day_content_map:
+                        subject_data, faculty = day_content_map[slot_start]
+                        if subject_data == "BREAK":
+                            row.append("BREAK")
+                        else:
+                            acronym = subject_data.get('acronym', subject_data['name'][:3].upper())
+                            cell_text = f"<b>{acronym}</b>\n({faculty})"
+                            row.append(Paragraph(cell_text, styles['BodyText']))
+                            
+                            s_code = subject_data.get('code', 'N/A')
+                            s_name = subject_data.get('name', '')
+                            if s_name not in section_subjects_map:
+                                section_subjects_map[s_name] = {'code': s_code, 'name': s_name, 'faculty': faculty}
                     else:
-                        acronym = subject_data.get('acronym', subject_data['name'][:3].upper())
-                        cell_text = f"<b>{acronym}</b>\n({faculty})"
-                        row.append(Paragraph(cell_text, styles['BodyText']))
-                        
-                        s_code = subject_data.get('code', 'N/A')
-                        s_name = subject_data.get('name', '')
-                        if s_name not in section_subjects_map:
-                            section_subjects_map[s_name] = {'code': s_code, 'name': s_name, 'faculty': faculty}
+                        row.append("") # Empty slot if missing
             else:
                 row.extend([""] * len(time_slots))
             data.append(row)
@@ -296,4 +302,49 @@ def export_to_pdf(timetables, time_slots, config, section_details):
         tt_table.setStyle(TableStyle([
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
             ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('ALIGN',
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(tt_table)
+        elements.append(Spacer(1, 20))
+
+        # Footer
+        footer_data = [["Subject Code", "Subject Name", "Faculty Name"]]
+        for s_info in section_subjects_map.values():
+            footer_data.append([
+                s_info['code'] if s_info['code'] else "-",
+                Paragraph(s_info['name'], styles['BodyText']),
+                s_info['faculty']
+            ])
+        
+        if len(footer_data) > 1:
+            elements.append(Paragraph("<b>Details of Faculty/Instructor:</b>", styles['Normal']))
+            elements.append(Spacer(1, 5))
+            f_table = Table(footer_data, colWidths=[1.5*inch, 4*inch, 2.5*inch], hAlign='LEFT')
+            f_table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('PADDING', (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(f_table)
+            elements.append(Spacer(1, 25))
+
+        # Signatures
+        in_charge = section_details.get(section, {}).get('in_charge', '')
+        sig_data = [[f"Class In-Charge: {in_charge}", "Head of Department"]]
+        sig_table = Table(sig_data, colWidths=[4*inch, 4*inch])
+        sig_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ]))
+        elements.append(sig_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
