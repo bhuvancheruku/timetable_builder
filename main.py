@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from modules.timetable_logic import GeneticAlgorithm, export_to_pdf
 
 st.set_page_config(page_title="Universal Timetable Builder", layout="wide")
@@ -41,17 +41,19 @@ with col1:
     st.subheader("Time Settings")
     start_time = custom_time_input("College Start Time", 9, 0, "AM", "start")
     end_time = custom_time_input("College End Time", 4, 0, "PM", "end")
-    num_classes = st.number_input("Classes per Day", min_value=1, value=6)
-
-    # --- LIVE PREVIEW OF CLASS DURATION ---
-    # This helps users realize why they are getting "10:03" instead of "10:00"
-    st.markdown("---")
     
-    # Calculate dummy break minutes to show preview
-    preview_break_mins = 0
-    # We can't access the checkboxes below yet, so we just calculate raw availability
-    # User will see the real math in the Break section logic if we move it?
-    # Simpler: We'll calculate it below after breaks are defined.
+    # --- DURATION MODE TOGGLE ---
+    st.markdown("---")
+    use_fixed = st.checkbox("Use Fixed Class Duration?", value=True, help="If checked, classes will be exactly X minutes. If unchecked, time is divided equally.")
+    
+    if use_fixed:
+        fixed_duration = st.number_input("Class Duration (Minutes)", min_value=30, value=60, step=5)
+        duration_mode = "fixed"
+    else:
+        duration_mode = "auto"
+        fixed_duration = 60
+        
+    num_classes = st.number_input("Max Classes per Day", min_value=1, value=6)
 
 with col2:
     st.subheader("Structure")
@@ -76,24 +78,6 @@ if st.checkbox("Add Lunch Break"):
         st.write("**Duration**")
         lb_dur = st.number_input("Minutes", min_value=15, value=60, key="lb_dur")
     breaks.append((lb_time, lb_dur))
-
-# --- CALCULATION PREVIEW ---
-# Real-time calc
-s_dt = datetime.combine(datetime.today(), start_time)
-e_dt = datetime.combine(datetime.today(), end_time)
-total_mins = (e_dt - s_dt).seconds // 60
-break_mins = sum(b[1] for b in breaks)
-avail = total_mins - break_mins
-if num_classes > 0:
-    calc_dur = avail // num_classes
-else:
-    calc_dur = 0
-
-st.info(f"📊 **Calculated Class Duration:** {calc_dur} minutes per class.\n\n"
-        f"(Total Time: {total_mins}m - Breaks: {break_mins}m = Available: {avail}m)")
-if calc_dur % 5 != 0:
-    st.warning("⚠️ Class duration is odd (e.g., 63 mins). "
-               "To get clean times (e.g., 60 mins), adjust your End Time or Break durations.")
 
 # --- SUBJECTS & FACULTY ---
 st.header("3. Subjects & Faculty")
@@ -131,7 +115,7 @@ if st.button("Generate Timetable", type="primary"):
             valid = False
             
     if valid:
-        ga = GeneticAlgorithm(subjects_data, faculty_map, breaks, num_classes, num_sections, start_time, end_time)
+        ga = GeneticAlgorithm(subjects_data, faculty_map, breaks, num_classes, num_sections, start_time, end_time, duration_mode, fixed_duration)
         with st.spinner("Optimizing schedule..."):
             best_schedule = ga.optimize()
             st.session_state.timetable_data = best_schedule
