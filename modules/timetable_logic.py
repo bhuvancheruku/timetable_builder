@@ -10,14 +10,16 @@ from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 class GeneticAlgorithm:
-    def __init__(self, subjects, faculty_members, breaks, num_classes, num_sections, start_time, end_time):
+    def __init__(self, subjects, faculty_members, breaks, num_classes, num_sections, start_time, end_time, duration_mode="auto", fixed_duration=60):
         self.subjects = subjects 
         self.faculty_members = faculty_members
-        self.breaks = sorted(breaks, key=lambda x: x[0]) # Sort breaks by time
+        self.breaks = sorted(breaks, key=lambda x: x[0])
         self.num_classes = num_classes
         self.num_sections = num_sections
         self.start_time = start_time
         self.end_time = end_time
+        self.duration_mode = duration_mode
+        self.fixed_duration = fixed_duration
         
         self.population_size = 50
         self.generations = 100
@@ -26,82 +28,91 @@ class GeneticAlgorithm:
 
     def create_time_slots(self):
         """
-        Generates slots by filling time. 
-        If a break is encountered, it is inserted immediately.
+        Generates slots. 
+        If 'fixed' mode: Places classes of X mins. Jumps breaks.
+        If 'auto' mode: Divides available time equally (legacy behavior).
         """
         time_slots = []
         current_time = self.start_time
         
-        # 1. Calculate ideal duration (ignoring breaks for a moment to get a baseline)
-        # This helps us aim for equal slots, but breaks act as hard stops.
-        start_dt = datetime.combine(datetime.today(), self.start_time)
-        end_dt = datetime.combine(datetime.today(), self.end_time)
-        total_minutes = (end_dt - start_dt).seconds // 60
-        total_break_minutes = sum(duration for _, duration in self.breaks)
-        
-        if self.num_classes > 0:
-            # We use this as the "Target" duration.
-            target_class_duration = (total_minutes - total_break_minutes) // self.num_classes
+        # --- AUTO-CALCULATION (Legacy fallback) ---
+        target_duration = 60
+        if self.duration_mode == "auto":
+            start_dt = datetime.combine(datetime.today(), self.start_time)
+            end_dt = datetime.combine(datetime.today(), self.end_time)
+            total_mins = (end_dt - start_dt).seconds // 60
+            total_break = sum(b[1] for b in self.breaks)
+            if self.num_classes > 0:
+                target_duration = (total_mins - total_break) // self.num_classes
         else:
-            target_class_duration = 60
+            target_duration = self.fixed_duration
 
-        # 2. Generate Slots
         classes_scheduled = 0
+        
+        # Loop until we have enough classes OR we run out of time
         while classes_scheduled < self.num_classes:
-            # Check if current time is exactly a break start
-            break_found = False
-            for break_time, break_duration in self.breaks:
-                # If we are AT the break time (or slightly past it due to drift, we snap to it)
-                # We use a small tolerance window or exact match.
-                # Since we strictly control current_time, exact match or "passed" check is good.
-                
-                # Convert to datetime for comparison
-                bt_dt = datetime.combine(datetime.today(), break_time)
-                ct_dt = datetime.combine(datetime.today(), current_time)
-                
-                if ct_dt == bt_dt:
-                    # Add Break
-                    break_end = (bt_dt + timedelta(minutes=break_duration)).time()
+            
+            # 1. CHECK FOR BREAK AT START
+            break_found_now = False
+            for b_time, b_dur in self.breaks:
+                # Compare times
+                if current_time == b_time:
+                    # Insert Break
+                    b_end_dt = datetime.combine(datetime.today(), current_time) + timedelta(minutes=b_dur)
                     time_slots.append((current_time, "BREAK"))
-                    current_time = break_end
-                    break_found = True
-                    break # Restart loop to check if another break follows immediately
+                    current_time = b_end_dt.time()
+                    break_found_now = True
+                    break
             
-            if break_found:
-                continue
-                
-            # Calculate where this class WOULD end
-            class_end_dt = datetime.combine(datetime.today(), current_time) + timedelta(minutes=target_class_duration)
+            if break_found_now:
+                continue # Loop again to see if another break follows or we start a class
+
+            # 2. TRY TO PLACE A CLASS
+            start_dt = datetime.combine(datetime.today(), current_time)
+            end_dt = start_dt + timedelta(minutes=target_duration)
             
-            # Check if this class overlaps with any break
-            actual_end_dt = class_end_dt
+            # 3. CHECK FOR COLLISIONS WITH BREAKS
+            collision = False
+            for b_time, b_dur in self.breaks:
+                b_start_dt = datetime.combine(datetime.today(), b_time)
+                # If break starts INSIDE this class slot (Start < Break < End)
+                if start_dt < b_start_dt < end_dt:
+                    collision = True
+                    # In Fixed Mode: We usually SKIP this gap or Truncate. 
+                    # To be clean, we usually jump to AFTER the break.
+                    # But if we jump, we leave a gap. 
+                    # Let's fill the gap with "Free" or just advance time.
+                    
+                    # Better Logic: If collision, we cannot place a full class here.
+                    # We advance current_time to the Break Start, process the break, and continue.
+                    # But we shouldn't create a "mini class". 
+                    
+                    # Let's simply Advance to the Break Start
+                    current_time = b_time
+                    break 
             
-            for break_time, _ in self.breaks:
-                bt_dt = datetime.combine(datetime.today(), break_time)
-                ct_dt = datetime.combine(datetime.today(), current_time)
-                
-                # If the break starts AFTER current time but BEFORE class ends
-                if ct_dt < bt_dt < class_end_dt:
-                    # TRUNCATE CLASS to stop at the break
-                    actual_end_dt = bt_dt
-            
-            # Hard Stop at College End Time
-            if actual_end_dt > end_dt:
-                actual_end_dt = end_dt
-            
-            # If we aren't advancing, stop to prevent infinite loop
-            if actual_end_dt <= datetime.combine(datetime.today(), current_time):
+            if collision:
+                continue # Loop will pick up the break at step 1
+
+            # 4. CHECK END OF DAY
+            college_end_dt = datetime.combine(datetime.today(), self.end_time)
+            if end_dt > college_end_dt:
+                # Cannot fit class before day ends
                 break
-                
-            # Add the class slot
-            time_slots.append((current_time, actual_end_dt.time()))
-            current_time = actual_end_dt.time()
+
+            # 5. COMMIT CLASS
+            time_slots.append((current_time, end_dt.time()))
+            current_time = end_dt.time()
             classes_scheduled += 1
-            
-            # Safety: If we hit end time, stop
-            if current_time >= self.end_time:
-                break
-                
+
+        # --- POST-LOOP: Check for trailing breaks ---
+        # If we finished classes exactly at Lunch (13:00), we want to show Lunch.
+        # Check if current_time matches any remaining breaks
+        for b_time, b_dur in self.breaks:
+            if current_time == b_time:
+                time_slots.append((current_time, "BREAK"))
+                # We don't advance time/loop further as classes are done.
+
         return time_slots
 
     def generate_random_schedule(self):
@@ -264,6 +275,14 @@ def export_to_pdf(timetables, time_slots, config, section_details):
         for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]:
             row = [day]
             if day in timetable:
+                # Because we might have added breaks *after* the generation loop in create_time_slots,
+                # we need to be careful if the timetable data length matches time_slots length.
+                # The generate_random_schedule uses create_time_slots, so they should match.
+                
+                # However, if time_slots has an extra break at the end (from the fix), 
+                # we need to make sure the row data has it too.
+                # Actually, generate_random_schedule iterates time_slots, so it WILL be there.
+                
                 for time_slot, subject_data, faculty in timetable[day]:
                     if subject_data == "BREAK":
                         row.append("BREAK")
