@@ -78,6 +78,10 @@ if st.button("Generate Timetable"):
 # --- Export to PDF ---
 if 'flat_timetable_df' in st.session_state:
     if st.button("Export to PDF"):
-        time_slots = [(slot[0], slot[1]) for slot in st.session_state.timetable_data[list(st.session_state.timetable_data.keys())[0]]["Monday"]]
+        # Fixed the list comprehension below to only grab slot[0] (the time tuple)
+        first_section = list(st.session_state.timetable_data.keys())[0]
+        time_slots = [slot[0] for slot in st.session_state.timetable_data[first_section]["Monday"]]
+        
         pdf_buffer = export_to_pdf(st.session_state.timetable_data, time_slots, branch_name)
         st.download_button("Download Timetable PDF", data=pdf_buffer, file_name=f"{branch_name}_timetable.pdf", mime="application/pdf")
+
