@@ -13,7 +13,7 @@ class GeneticAlgorithm:
     def __init__(self, subjects, faculty_members, breaks, num_classes, num_sections, start_time, end_time):
         self.subjects = subjects 
         self.faculty_members = faculty_members
-        self.breaks = breaks
+        self.breaks = sorted(breaks, key=lambda x: x[0]) # Sort breaks by time
         self.num_classes = num_classes
         self.num_sections = num_sections
         self.start_time = start_time
@@ -25,37 +25,82 @@ class GeneticAlgorithm:
         self.elite_size = 2
 
     def create_time_slots(self):
-        """Calculates valid class slots excluding breaks."""
+        """
+        Generates slots by filling time. 
+        If a break is encountered, it is inserted immediately.
+        """
         time_slots = []
         current_time = self.start_time
         
+        # 1. Calculate ideal duration (ignoring breaks for a moment to get a baseline)
+        # This helps us aim for equal slots, but breaks act as hard stops.
         start_dt = datetime.combine(datetime.today(), self.start_time)
         end_dt = datetime.combine(datetime.today(), self.end_time)
         total_minutes = (end_dt - start_dt).seconds // 60
-        
         total_break_minutes = sum(duration for _, duration in self.breaks)
-        available_minutes = total_minutes - total_break_minutes
         
         if self.num_classes > 0:
-            class_duration = available_minutes // self.num_classes
+            # We use this as the "Target" duration.
+            target_class_duration = (total_minutes - total_break_minutes) // self.num_classes
         else:
-            class_duration = 60
+            target_class_duration = 60
 
-        for _ in range(self.num_classes):
-            # Check for breaks at the current time
+        # 2. Generate Slots
+        classes_scheduled = 0
+        while classes_scheduled < self.num_classes:
+            # Check if current time is exactly a break start
+            break_found = False
             for break_time, break_duration in self.breaks:
-                if current_time == break_time:
-                    break_end = (datetime.combine(datetime.today(), current_time) + timedelta(minutes=break_duration)).time()
+                # If we are AT the break time (or slightly past it due to drift, we snap to it)
+                # We use a small tolerance window or exact match.
+                # Since we strictly control current_time, exact match or "passed" check is good.
+                
+                # Convert to datetime for comparison
+                bt_dt = datetime.combine(datetime.today(), break_time)
+                ct_dt = datetime.combine(datetime.today(), current_time)
+                
+                if ct_dt == bt_dt:
+                    # Add Break
+                    break_end = (bt_dt + timedelta(minutes=break_duration)).time()
                     time_slots.append((current_time, "BREAK"))
                     current_time = break_end
+                    break_found = True
+                    break # Restart loop to check if another break follows immediately
             
-            # Add Class Slot
-            class_end_dt = datetime.combine(datetime.today(), current_time) + timedelta(minutes=class_duration)
-            class_end_time = class_end_dt.time()
+            if break_found:
+                continue
+                
+            # Calculate where this class WOULD end
+            class_end_dt = datetime.combine(datetime.today(), current_time) + timedelta(minutes=target_class_duration)
             
-            if class_end_time <= self.end_time:
-                time_slots.append((current_time, class_end_time))
-                current_time = class_end_time
+            # Check if this class overlaps with any break
+            actual_end_dt = class_end_dt
+            
+            for break_time, _ in self.breaks:
+                bt_dt = datetime.combine(datetime.today(), break_time)
+                ct_dt = datetime.combine(datetime.today(), current_time)
+                
+                # If the break starts AFTER current time but BEFORE class ends
+                if ct_dt < bt_dt < class_end_dt:
+                    # TRUNCATE CLASS to stop at the break
+                    actual_end_dt = bt_dt
+            
+            # Hard Stop at College End Time
+            if actual_end_dt > end_dt:
+                actual_end_dt = end_dt
+            
+            # If we aren't advancing, stop to prevent infinite loop
+            if actual_end_dt <= datetime.combine(datetime.today(), current_time):
+                break
+                
+            # Add the class slot
+            time_slots.append((current_time, actual_end_dt.time()))
+            current_time = actual_end_dt.time()
+            classes_scheduled += 1
+            
+            # Safety: If we hit end time, stop
+            if current_time >= self.end_time:
+                break
                 
         return time_slots
 
@@ -161,9 +206,7 @@ class GeneticAlgorithm:
 
 # --- UNIVERSAL PDF EXPORT FUNCTION ---
 def format_time_12hr(t):
-    """Converts datetime.time or string to 12-hour format string (e.g., 01:30 PM)."""
-    if isinstance(t, str):
-        return t
+    if isinstance(t, str): return t
     return t.strftime("%I:%M %p")
 
 def export_to_pdf(timetables, time_slots, config, section_details):
@@ -190,7 +233,6 @@ def export_to_pdf(timetables, time_slots, config, section_details):
             header_elems.append(Paragraph(config['org_name'], title_style))
         if config.get('subtitle'):
             header_elems.append(Paragraph(config['subtitle'], subtitle_style))
-        
         header_elems.append(Spacer(1, 10))
         
         dept_text = config.get('dept_name', '')
@@ -214,7 +256,6 @@ def export_to_pdf(timetables, time_slots, config, section_details):
             if end == "BREAK":
                 table_headers.append("BREAK")
             else:
-                # Format: 09:00 AM <newline> 10:10 AM
                 table_headers.append(f"{format_time_12hr(start)}\n{format_time_12hr(end)}")
         
         data = [table_headers]
@@ -252,7 +293,7 @@ def export_to_pdf(timetables, time_slots, config, section_details):
         elements.append(tt_table)
         elements.append(Spacer(1, 20))
 
-        # Footer Details
+        # Footer
         footer_data = [["Subject Code", "Subject Name", "Faculty Name"]]
         for s_info in section_subjects_map.values():
             footer_data.append([
