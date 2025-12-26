@@ -293,4 +293,46 @@ def export_to_pdf(timetables, time_slots, config, section_details):
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(tt_table)
+        elements.append(Spacer(1, 20))
+
+        # Footer
+        footer_data = [["Subject Code", "Subject Name", "Faculty Name"]]
+        for s_info in section_subjects_map.values():
+            footer_data.append([
+                s_info['code'] if s_info['code'] else "-",
+                Paragraph(s_info['name'], styles['BodyText']),
+                s_info['faculty']
+            ])
+        
+        if len(footer_data) > 1:
+            elements.append(Paragraph("<b>Details of Faculty/Instructor:</b>", styles['Normal']))
+            elements.append(Spacer(1, 5))
+            f_table = Table(footer_data, colWidths=[1.5*inch, 4*inch, 2.5*inch], hAlign='LEFT')
+            f_table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('PADDING', (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(f_table)
+            elements.append(Spacer(1, 25))
+
+        # Signatures
+        in_charge = section_details.get(section, {}).get('in_charge', '')
+        sig_data = [[f"Class In-Charge: {in_charge}", "Head of Department"]]
+        sig_table = Table(sig_data, colWidths=[4*inch, 4*inch])
+        sig_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ]))
+        elements.append(sig_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
